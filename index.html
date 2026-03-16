@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>CRYSTAL GATE | 528 Hz</title>
+    <style>
+        :root {
+            --bg-color: #0D000D;
+            --eyes-closed-bg: #030003;
+            --text-color: rgba(255, 255, 255, 0.8);
+            --text-dim: rgba(255, 255, 255, 0.35);
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100dvw;
+            height: 100dvh;
+            background-color: var(--bg-color);
+            overflow: hidden;
+            font-family: system-ui, -apple-system, sans-serif;
+            transition: background-color 2s ease;
+        }
+
+        body.eyes-closed {
+            background-color: var(--eyes-closed-bg);
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            transition: opacity 2s ease;
+            z-index: 1;
+        }
+
+        body.eyes-closed canvas {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #intro-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+            pointer-events: auto;
+            transition: opacity 1.5s ease;
+            cursor: pointer;
+        }
+
+        h1 {
+            font-size: 24px;
+            letter-spacing: 0.4em;
+            font-weight: 300;
+            color: #fff;
+            margin: 0 0 16px 0;
+            text-transform: uppercase;
+        }
+
+        p {
+            font-size: 12px;
+            letter-spacing: 0.2em;
+            color: var(--text-color);
+            margin: 0 0 40px 0;
+            text-transform: uppercase;
+        }
+
+        .headphones {
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        #shape-name {
+            position: absolute;
+            bottom: max(30px, env(safe-area-inset-bottom));
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            letter-spacing: 0.6em;
+            color: var(--text-dim);
+            opacity: 0;
+            transition: opacity 1s ease;
+            text-transform: uppercase;
+        }
+
+        #mute-btn {
+            position: absolute;
+            bottom: max(20px, env(safe-area-inset-bottom));
+            right: max(20px, env(safe-area-inset-right));
+            width: 20px;
+            height: 20px;
+            opacity: 0.2;
+            pointer-events: auto;
+            cursor: pointer;
+            z-index: 20;
+            transition: opacity 0.3s ease;
+        }
+
+        #mute-btn:active {
+            opacity: 0.5;
+        }
+
+        #eyes-closed-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgb(230, 191, 255);
+            box-shadow: 0 0 20px rgba(230, 191, 255, 0.8);
+            opacity: 0;
+            transition: opacity 2s ease;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        body.eyes-closed #eyes-closed-dot {
+            opacity: 0.4;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="glcanvas"></canvas>
+    
+    <div id="eyes-closed-dot"></div>
+
+    <div id="ui-layer">
+        <div id="shape-name">FLOWER OF LIFE</div>
+    </div>
+
+    <svg id="mute-btn" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+    </svg>
+
+    <div id="intro-overlay">
+        <h1>Crystal Gate</h1>
+        <p>528 hz · love frequency</p>
+        <div class="headphones">headphones suggested</div>
+    </div>
+
+<script>
+/**
+ * AUDIO ENGINE
+ */
+class AudioEngine {
+    constructor() {
+        this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        this.masterGain = this.ctx.createGain();
+        this.masterGain.connect(this.ctx.destination);
+        this.isMuted = false;
+        
+        this.nodes = [];
+        this.arpeggioGain = this.ctx.createGain();
+        this.arpeggioGain.connect(this.masterGain);
+
+        // Setup Reverb for Arpeggio
+        this.convolver = this.ctx.createConvolver();
+        this.convolver.buffer = this.createReverbIR();
+        
+        this.reverbGain = this.ctx.createGain();
+        this.reverbGain.gain.value = 0.5;
+        
+        this.arpeggioGain.connect(this.convolver);
+        this.convolver.connect(this.reverbGain);
+        this.reverbGain.connect(this.masterGain);
+    }
+
+    createReverbIR() {
+        const length = this.ctx.sampleRate * 1.5;
+        const impulse = this.ctx.createBuffer(2, length, this.ctx.sampleRate);
+        const left = impulse.getChannelData(0);
+        const right = impulse.getChannelData(1);
+
+        for (let i = 0; i < length; i++) {
+            const decay = Math.pow(1 - i / length, 3.0);
+            left[i] = (Math.random() * 2 - 1) * decay;
+            right[i] = (Math.random() * 2 - 1) * decay;
+        }
+        return impulse;
+    }
+
+    createOscillator(freq, gainValue, isBinaural = false, pan = 0) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.value = 0; // Start at 0 for fade in
+
+        if (isBinaural) {
+            const panner = this.ctx.createStereoPanner();
+            panner.pan.value = pan;
+            osc.connect(gain);
+            gain.connect(panner);
+            panner.connect(this.masterGain);
+        } else {
+            osc.connect(gain);
+            gain.connect(this.masterGain);
+        }
+
+        osc.start();
+        
+        // 6 second fade in
+        gain.gain.linearRampToValueAtTime(gainValue, this.ctx.currentTime + 6.0);
+        
+        this.nodes.push({ osc, gain });
+        return { osc, gain };
+    }
+
+    start() {
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
+        // Main Harmonic Series
+        const f0 = this.createOscillator(528, 0.14); // Fundamental
+        this.createOscillator(264, 0.07);  // 1 Octave down
+        this.createOscillator(1056, 0.04); // 1 Octave up
+        this.createOscillator(792, 0.05);  // Perfect 5th up
+        this.createOscillator(352, 0.03);  // Perfect 5th down
+
+        // LFO for 528Hz Vibrato
+        const lfo = this.ctx.createOscillator();
+        const lfoGain = this.ctx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 5.5; // Singer vibrato speed
+        lfoGain.gain.value = 1.2;  // ±1.2 Hz depth
+        
+        lfo.connect(lfoGain);
+        lfoGain.connect(f0.osc.frequency);
+        lfo.start();
+
+        // Binaural Beats (210 L, 213 R => 3Hz Delta)
+        this.createOscillator(210, 0.06, true, -1);
+        this.createOscillator(213, 0.06, true, 1);
+    }
+
+    playTransitionArpeggio() {
+        const notes = [528, 660, 792]; // Pentatonic feel
+        const now = this.ctx.currentTime;
+        
+        notes.forEach((freq, index) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            
+            osc.type = 'sine';
+            osc.frequency.value = freq;
+            gain.gain.value = 0;
+            
+            osc.connect(gain);
+            gain.connect(this.arpeggioGain);
+            
+            const startTime = now + (index * 0.15);
+            osc.start(startTime);
+            
+            gain.gain.setValueAtTime(0, startTime);
+            gain.gain.linearRampToValueAtTime(0.12, startTime + 0.05);
+            gain.gain.linearRampToValueAtTime(0, startTime + 0.15);
+            
+            osc.stop(startTime + 0.2);
+        });
+    }
+
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        const now = this.ctx.currentTime;
+        this.masterGain.gain.cancelScheduledValues(now);
+        this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, now);
+        this.masterGain.gain.linearRampToValueAtTime(this.isMuted ? 0 : 1, now + 0.5);
+        return this.isMuted;
+    }
+}
+
+/**
+ * VISUAL ENGINE (WebGL2)
+ */
+const QUAD_VS = `#version 300 es
+in vec2 aPosition;
+out vec2 vUv;
+void main() {
+    vUv = aPosition;
+    gl_Position = vec4(aPosition, 0.0, 1.0);
+}`;
+
+const QUAD_FS = `#version 300 es
+precision highp float;
+
+in vec2 vUv;
+
+uniform float uTime;
+uniform vec2 uResolution;
+uniform int uShape1;
+uniform int uShape2;
+uniform float uMorphProgress;
+uniform vec2 uTouchPos;
+uniform float uTouchStrength;
+
+out vec4 fragColor;
+
+#define PI 3.14159265359
+#define R 0.32
+
+mat2 rot(float a) {
+    float s = sin(a), c = cos(a);
+    return mat2(c, -s, s, c);
+}
+
+float sdCircle(vec2 p, float r) {
+    return length(p) - r;
+}
+
+float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+// Distance to equilateral triangle
+float sdTriangleEq(vec2 p, float r) {
+    const float k = sqrt(3.0);
+    p.x = abs(p.x) - r;
+    p.y = p.y + r/k;
+    if( p.x + k*p.y > 0.0 ) p = vec2(p.x-k*p.y, -k*p.x-p.y)/2.0;
+    p.x -= clamp( p.x, -2.0*r, 0.0 );
+    return -length(p)*sign(p.y);
+}
+
+vec3 getBaseColor(vec2 uv, float d) {
+    vec3 base = vec3(0.9, 0.75, 1.0);
+    vec3 intersect = vec3(0.3, 1.0, 0.8);
+    vec3 centerGold = vec3(1.0, 0.95, 0.7);
+    
+    // Color logic based on distance to center and proximity to edges
+    float distToCenter = length(uv);
+    vec3 col = mix(base, centerGold, smoothstep(0.3, 0.0, distToCenter));
+    col = mix(col, intersect, smoothstep(0.02, 0.0, abs(d)));
+    
+    return col;
+}
+
+// Shape 0: Flower of Life
+float flowerOfLife(vec2 uv) {
+    uv *= rot(uTime * 0.015);
+    float d = abs(sdCircle(uv, R));
+    
+    for(int i = 0; i < 6; i++) {
+        float angle = float(i) * PI / 3.0;
+        vec2 center = vec2(cos(angle), sin(angle)) * R;
+        d = min(d, abs(sdCircle(uv - center, R)));
+    }
+    return d - 0.003; 
+}
+
+// Shape 1: Metatron's Cube
+float metatronsCube(vec2 uv) {
+    uv *= rot(uTime * 0.015);
+    vec2 centers[13];
+    centers[0] = vec2(0.0);
+    
+    for(int i = 0; i < 6; i++) {
+        float angle = float(i) * PI / 3.0;
+        centers[i+1] = vec2(cos(angle), sin(angle)) * R;
+    }
+    
+    float outerR = R * sqrt(3.0);
+    for(int i = 0; i < 6; i++) {
+        float angle = float(i) * PI / 3.0 + PI/6.0;
+        centers[i+7] = vec2(cos(angle), sin(angle)) * outerR;
+    }
+
+    float d = 1e6;
+    // 13 Circles
+    for(int i = 0; i < 13; i++) {
+        d = min(d, abs(sdCircle(uv - centers[i], R)));
+    }
+    
+    // 78 Lines (Webgl2 allows constant array indexing in loops)
+    for(int i = 0; i < 12; i++) {
+        for(int j = i + 1; j < 13; j++) {
+            d = min(d, sdSegment(uv, centers[i], centers[j]));
+        }
+    }
+    return d - 0.002;
+}
+
+// Shape 2: Sri Yantra (Stylized representation of 9 interlocking triangles)
+float sriYantra(vec2 uv) {
+    float d = 1e6;
+    
+    // Bindu (Center)
+    d = min(d, sdCircle(uv, 0.01));
+    
+    // 4 Upward Triangles (Shiva)
+    d = min(d, abs(sdTriangleEq((uv - vec2(0.0, -0.05)) * 1.0, 0.3)));
+    d = min(d, max(sdTriangleEq((uv - vec2(0.0, -0.15)) * 0.8, 0.4), 0.0) + 0.001); // solid inset
+    d = min(d, abs(sdTriangleEq((uv - vec2(0.0, 0.05)) * 1.5, 0.2)));
+    d = min(d, abs(sdTriangleEq((uv - vec2(0.0, -0.25)) * 0.6, 0.5)));
+
+    // 5 Downward Triangles (Shakti)
+    vec2 invUV = vec2(uv.x, -uv.y);
+    d = min(d, abs(sdTriangleEq((invUV - vec2(0.0, -0.1)) * 1.1, 0.3)));
+    d = min(d, max(sdTriangleEq((invUV - vec2(0.0, -0.2)) * 0.9, 0.4), 0.0) + 0.001); // solid inset
+    d = min(d, abs(sdTriangleEq((invUV - vec2(0.0, 0.1)) * 1.4, 0.2)));
+    d = min(d, abs(sdTriangleEq((invUV - vec2(0.0, -0.3)) * 0.7, 0.5)));
+    d = min(d, abs(sdTriangleEq((invUV - vec2(0.0, 0.0)) * 1.8, 0.15)));
+
+    // Outer Circle Enclosure
+    d = min(d, abs(sdCircle(uv, 0.65)));
+    d = min(d, abs(sdCircle(uv, 0.68)));
+    
+    return d - 0.002;
+}
+
+float getShapeDist(int shape, vec2 uv) {
+    if (shape == 0) return flowerOfLife(uv);
+    if (shape == 1) return metatronsCube(uv);
+    if (shape == 2) return sriYantra(uv);
+    return 1e6;
+}
+
+vec3 renderShape(int shape, vec2 uv) {
+    float d = getShapeDist(shape, uv);
+    vec3 col = getBaseColor(uv, d);
+    
+    // Line rendering
+    float line = smoothstep(0.005, 0.0, d);
+    
+    // Glow calculation
+    float glow = 0.008 / (max(d, 0.0001) + 0.002);
+    glow = pow(glow, 1.2);
+    
+    return col * line + col * glow * 0.5;
+}
+
+void main() {
+    // Normalize UVs (-1 to 1, aspect corrected)
+    vec2 uv = vUv;
+    uv.x *= uResolution.x / uResolution.y;
+    
+    // Breathing Animation
+    float breathScale = 1.0 + 0.06 * sin(uTime * 0.4);
+    vec2 breathedUv = uv / breathScale;
+    
+    // Render shapes
+    vec3 col1 = renderShape(uShape1, breathedUv);
+    vec3 col2 = vec3(0.0);
+    
+    if (uMorphProgress > 0.0) {
+        col2 = renderShape(uShape2, breathedUv);
+    }
+    
+    // Crossfade Shapes
+    vec3 finalCol = mix(col1, col2, smoothstep(0.0, 1.0, uMorphProgress));
+    
+    // Touch Interaction
+    if (uTouchStrength > 0.0) {
+        vec2 touchNorm = uTouchPos;
+        touchNorm.x *= uResolution.x / uResolution.y;
+        float touchDist = length(uv - touchNorm);
+        float touchGlow = exp(-touchDist * 5.0) * uTouchStrength;
+        vec3 gold = vec3(1.0, 0.95, 0.7);
+        finalCol += gold * touchGlow * 0.8;
+    }
+    
+    fragColor = vec4(finalCol, 1.0);
+}`
+
+const PARTICLE_VS = `#version 300 es
+in float aIndex;
+
+uniform float uTime;
+uniform vec2 uResolution;
+
+out float vAlpha;
+out vec3 vColor;
+
+// Pseudo-random hash
+float hash(float n) { return fract(sin(n) * 1e4); }
+
+void main() {
+    float angle = hash(aIndex) * 3.14159 * 2.0;
+    float radius = 0.2 + hash(aIndex + 1.0) * 0.8;
+    float speed = (0.008 + hash(aIndex + 2.0) * 0.004) * (hash(aIndex + 3.0) > 0.5 ? 1.0 : -1.0);
+    
+    float currentAngle = angle + uTime * speed;
+    
+    // Breathing scale match
+    float breathScale = 1.0 + 0.06 * sin(uTime * 0.4);
+    
+    vec2 pos = vec2(cos(currentAngle), sin(currentAngle)) * radius * breathScale;
+    
+    // Aspect ratio correction
+    pos.x /= (uResolution.x / uResolution.y);
+    
+    gl_Position = vec4(pos, 0.0, 1.0);
+    gl_PointSize = 1.0 + hash(aIndex + 4.0) * 1.5;
+    
+    vAlpha = 0.3 + hash(aIndex + 5.0) * 0.4;
+    
+    // Base crystal colors
+    vec3 col1 = vec3(0.9, 0.75, 1.0);
+    vec3 col2 = vec3(0.3, 1.0, 0.8);
+    vColor = mix(col1, col2, hash(aIndex + 6.0));
+}`
+
+const PARTICLE_FS = `#version 300 es
+precision mediump float;
+in float vAlpha;
+in vec3 vColor;
+out vec4 fragColor;
+void main() {
+    vec2 circCoord = 2.0 * gl_PointCoord - 1.0;
+    if (dot(circCoord, circCoord) > 1.0) discard;
+    
+    // Soft particle
+    float alpha = vAlpha * (1.0 - length(circCoord));
+    fragColor = vec4(vColor * alpha, alpha);
+}`
+
+class VisualEngine {
+    constructor(canvas) {
+        this.canvas = canvas;
+        this.gl = canvas.getContext('webgl2', { alpha: false, antialias: true, depth: false });
+        
+        if (!this.gl) {
+            console.error("WebGL 2 not supported");
+            return;
+        }
+
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+
+        this.initQuad();
+        this.initParticles();
+        
+        if (!this.quadProgram || !this.particleProgram) {
+            console.error("Failed to initialize WebGL shaders");
+            return;
+        }
+
+        this.time = 0;
+        this.shape1 = 0;
+        this.shape2 = 1;
+        this.morphProgress = 0;
+        this.touchPos = [0, 0];
+        this.touchStrength = 0;
+    }
+
+    compileShader(type, source) {
+        const shader = this.gl.createShader(type);
+        this.gl.shaderSource(shader, source);
+        this.gl.compileShader(shader);
+        if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+            console.error("Shader compilation error:", this.gl.getShaderInfoLog(shader));
+            this.gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+
+    createProgram(vsSource, fsSource) {
+        const vs = this.compileShader(this.gl.VERTEX_SHADER, vsSource);
+        const fs = this.compileShader(this.gl.FRAGMENT_SHADER, fsSource);
+        
+        if (!vs || !fs) return null; // Prevent attaching null shaders
+        
+        const program = this.gl.createProgram();
+        this.gl.attachShader(program, vs);
+        this.gl.attachShader(program, fs);
+        this.gl.linkProgram(program);
+        return program;
+    }
+
+    initQuad() {
+        this.quadProgram = this.createProgram(QUAD_VS, QUAD_FS);
+        if (!this.quadProgram) return;
+        
+        const vertices = new Float32Array([
+            -1, -1,  1, -1,  -1, 1,
+            -1,  1,  1, -1,   1, 1
+        ]);
+        
+        this.quadVao = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.quadVao);
+        
+        const buf = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.STATIC_DRAW);
+        
+        const posLoc = this.gl.getAttribLocation(this.quadProgram, 'aPosition');
+        this.gl.enableVertexAttribArray(posLoc);
+        this.gl.vertexAttribPointer(posLoc, 2, this.gl.FLOAT, false, 0, 0);
+
+        this.quadUniforms = {
+            uTime: this.gl.getUniformLocation(this.quadProgram, 'uTime'),
+            uResolution: this.gl.getUniformLocation(this.quadProgram, 'uResolution'),
+            uShape1: this.gl.getUniformLocation(this.quadProgram, 'uShape1'),
+            uShape2: this.gl.getUniformLocation(this.quadProgram, 'uShape2'),
+            uMorphProgress: this.gl.getUniformLocation(this.quadProgram, 'uMorphProgress'),
+            uTouchPos: this.gl.getUniformLocation(this.quadProgram, 'uTouchPos'),
+            uTouchStrength: this.gl.getUniformLocation(this.quadProgram, 'uTouchStrength')
+        };
+    }
+
+    initParticles() {
+        this.particleCount = 3000;
+        this.particleProgram = this.createProgram(PARTICLE_VS, PARTICLE_FS);
+        if (!this.particleProgram) return;
+        
+        const indices = new Float32Array(this.particleCount);
+        for(let i=0; i<this.particleCount; i++) indices[i] = i;
+
+        this.particleVao = this.gl.createVertexArray();
+        this.gl.bindVertexArray(this.particleVao);
+
+        const buf = this.gl.createBuffer();
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, indices, this.gl.STATIC_DRAW);
+
+        const idxLoc = this.gl.getAttribLocation(this.particleProgram, 'aIndex');
+        this.gl.enableVertexAttribArray(idxLoc);
+        this.gl.vertexAttribPointer(idxLoc, 1, this.gl.FLOAT, false, 0, 0);
+
+        this.particleUniforms = {
+            uTime: this.gl.getUniformLocation(this.particleProgram, 'uTime'),
+            uResolution: this.gl.getUniformLocation(this.particleProgram, 'uResolution')
+        };
+    }
+
+    resize() {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        // Adjust for high DPI displays up to 2x for performance balance
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        this.canvas.width = this.width * dpr;
+        this.canvas.height = this.height * dpr;
+        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    setTouch(x, y, strength) {
+        // Map to -1 to 1 range
+        this.touchPos = [
+            (x / this.width) * 2 - 1,
+            -((y / this.height) * 2 - 1)
+        ];
+        this.touchStrength = strength;
+    }
+
+    render(time, shape1, shape2, morphProgress) {
+        if (!this.quadProgram || !this.particleProgram) return;
+
+        this.gl.clearColor(0.05, 0.0, 0.05, 1.0); // #0D000D equivalent
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+        // 1. Draw Geometry Quad
+        this.gl.useProgram(this.quadProgram);
+        this.gl.bindVertexArray(this.quadVao);
+        
+        this.gl.uniform1f(this.quadUniforms.uTime, time);
+        this.gl.uniform2f(this.quadUniforms.uResolution, this.width, this.height);
+        this.gl.uniform1i(this.quadUniforms.uShape1, shape1);
+        this.gl.uniform1i(this.quadUniforms.uShape2, shape2);
+        this.gl.uniform1f(this.quadUniforms.uMorphProgress, morphProgress);
+        this.gl.uniform2fv(this.quadUniforms.uTouchPos, this.touchPos);
+        this.gl.uniform1f(this.quadUniforms.uTouchStrength, this.touchStrength);
+
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+
+        // 2. Draw Particles (Additive Blending)
+        this.gl.enable(this.gl.BLEND);
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE); // Additive
+        
+        this.gl.useProgram(this.particleProgram);
+        this.gl.bindVertexArray(this.particleVao);
+        
+        this.gl.uniform1f(this.particleUniforms.uTime, time);
+        this.gl.uniform2f(this.particleUniforms.uResolution, this.width, this.height);
+        
+        this.gl.drawArrays(this.gl.POINTS, 0, this.particleCount);
+        
+        this.gl.disable(this.gl.BLEND);
+    }
+}
+
+/**
+ * APP CONTROLLER
+ */
+class CrystalGate {
+    constructor() {
+        this.canvas = document.getElementById('glcanvas');
+        this.intro = document.getElementById('intro-overlay');
+        this.muteBtn = document.getElementById('mute-btn');
+        this.shapeNameEl = document.getElementById('shape-name');
+        
+        this.visual = new VisualEngine(this.canvas);
+        this.audio = null;
+
+        this.state = {
+            startTime: 0,
+            activeShape: 0,
+            nextShape: 1,
+            morphProgress: 0,
+            morphing: false,
+            eyesClosed: false,
+            touchStartTime: 0
+        };
+
+        this.shapes = ["FLOWER OF LIFE", "METATRON'S CUBE", "SRI YANTRA"];
+        this.SHAPE_DURATION = 45; // seconds
+        this.MORPH_DURATION = 8;  // seconds
+
+        this.bindEvents();
+        requestAnimationFrame((t) => this.loop(t));
+    }
+
+    bindEvents() {
+        this.intro.addEventListener('click', () => this.start());
+        
+        this.muteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this.audio) {
+                const isMuted = this.audio.toggleMute();
+                this.muteBtn.style.opacity = isMuted ? "0.5" : "0.2";
+                this.muteBtn.innerHTML = isMuted ? 
+                    `<line x1="1" y1="1" x2="23" y2="23"></line><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>` :
+                    `<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>`;
+            }
+        });
+
+        // Touch Shimmer Interaction
+        window.addEventListener('pointerdown', (e) => {
+            if (e.target === this.muteBtn || e.target === this.intro || this.state.eyesClosed) return;
+            this.state.touchStartTime = performance.now();
+            this.visual.setTouch(e.clientX, e.clientY, 1.0);
+        });
+        
+        window.addEventListener('pointermove', (e) => {
+            if (this.visual.touchStrength > 0 && e.buttons > 0) {
+                this.visual.setTouch(e.clientX, e.clientY, this.visual.touchStrength);
+            }
+        });
+
+        // Double tap for Eyes Closed mode
+        let lastTap = 0;
+        window.addEventListener('touchend', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            if (tapLength < 300 && tapLength > 0) {
+                this.toggleEyesClosed();
+                e.preventDefault();
+            }
+            lastTap = currentTime;
+        });
+        window.addEventListener('dblclick', () => this.toggleEyesClosed());
+    }
+
+    async start() {
+        this.intro.style.opacity = '0';
+        setTimeout(() => this.intro.style.display = 'none', 1500);
+
+        this.audio = new AudioEngine();
+        this.audio.start();
+
+        // Attempt WakeLock
+        try {
+            if ('wakeLock' in navigator) {
+                await navigator.wakeLock.request('screen');
+            }
+        } catch (err) {
+            console.log("WakeLock not available.");
+        }
+
+        this.state.startTime = performance.now() / 1000;
+        this.showShapeName();
+    }
+
+    toggleEyesClosed() {
+        this.state.eyesClosed = !this.state.eyesClosed;
+        document.body.classList.toggle('eyes-closed', this.state.eyesClosed);
+    }
+
+    showShapeName() {
+        this.shapeNameEl.textContent = this.shapes[this.state.activeShape];
+        this.shapeNameEl.style.opacity = '1';
+        setTimeout(() => {
+            this.shapeNameEl.style.opacity = '0';
+        }, 3000);
+    }
+
+    loop(timestamp) {
+        requestAnimationFrame((t) => this.loop(t));
+        
+        if (!this.state.startTime) return; // Wait for start
+
+        const t = timestamp / 1000;
+        const elapsed = t - this.state.startTime;
+        
+        // Touch fade logic (0 -> 1 -> 0 over 0.6s)
+        if (this.state.touchStartTime > 0) {
+            const touchElapsed = (performance.now() - this.state.touchStartTime) / 1000;
+            if (touchElapsed < 0.6) {
+                // Peak at 0.15s, then fade out
+                let str = touchElapsed < 0.15 ? touchElapsed / 0.15 : 1.0 - ((touchElapsed - 0.15) / 0.45);
+                this.visual.touchStrength = Math.max(0, str);
+            } else {
+                this.visual.touchStrength = 0;
+                this.state.touchStartTime = 0;
+            }
+        }
+
+        // Cycle logic
+        const cycleTime = elapsed % (this.SHAPE_DURATION + this.MORPH_DURATION);
+        
+        if (cycleTime > this.SHAPE_DURATION) {
+            if (!this.state.morphing) {
+                this.state.morphing = true;
+                this.state.nextShape = (this.state.activeShape + 1) % 3;
+            }
+            this.state.morphProgress = (cycleTime - this.SHAPE_DURATION) / this.MORPH_DURATION;
+        } else {
+            if (this.state.morphing) {
+                // Morph complete
+                this.state.morphing = false;
+                this.state.activeShape = this.state.nextShape;
+                this.state.morphProgress = 0;
+                this.showShapeName();
+                if (this.audio && !this.state.eyesClosed) {
+                    this.audio.playTransitionArpeggio();
+                }
+            }
+        }
+
+        // Breathing dot synchronization for eyes closed mode
+        if (this.state.eyesClosed) {
+            const scale = 1.0 + 0.3 * Math.sin(t * 0.4);
+            document.getElementById('eyes-closed-dot').style.transform = `translate(-50%, -50%) scale(${scale})`;
+        }
+
+        // Render WebGL
+        if (!this.state.eyesClosed) {
+            this.visual.render(t, this.state.activeShape, this.state.nextShape, this.state.morphProgress);
+        }
+    }
+}
+
+// Initialize
+window.onload = () => {
+    new CrystalGate();
+};
+</script>
+</body>
+</html>
